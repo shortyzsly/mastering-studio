@@ -1,0 +1,24 @@
+# Local virtualenvs (recreate per machine: python3 -m venv .venv && pip install -e .)
+.venv/
+venv/
+
+# Build/packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Editor/OS cruft
+.DS_Store
+Thumbs.db
+
+# Never commit audio - this is a mastering tool, not a place to store recordings
+*.wav
+*.flac
+*.mp3
+*.aiff
+*.aif
+*.ogg

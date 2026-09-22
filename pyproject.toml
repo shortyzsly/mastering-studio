@@ -1,0 +1,27 @@
+[project]
+name = "mastering-studio"
+version = "0.1.0"
+description = "Native audio mastering app for audiobook/voice cleanup: analysis-driven denoise, declick, EQ, compression, loudness."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "soundfile",
+    "noisereduce",
+    "pyloudnorm",
+    "PySide6",
+]
+
+[project.scripts]
+mastering-studio = "mastering_studio.gui:main"
+mastering-studio-cli = "mastering_studio.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "mastering_studio",
+    "mastering_studio.dsp",
+]
