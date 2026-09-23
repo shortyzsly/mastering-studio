@@ -11,10 +11,13 @@ in gaps (-1.4 dB vs -14.7 dB for the Wiener filter), so the pipeline runs the Wi
 denoiser after it at reduced depth.
 
 Isolation: the model needs PyTorch (~1 GB on disk), which is kept out of the app's
-own environment. It runs in a separate virtualenv named by
-$MASTERING_STUDIO_NEURAL_PYTHON (default ~/Work/nn-venv/bin/python) via
-`_dfn_worker.py`. If that environment is missing, `available()` is False and the
-GUI/CLI option is disabled; nothing else is affected.
+own environment and out of git (it's platform/arch-specific, so a Linux venv would
+not run on Mac/Windows anyway). It runs in a separate virtualenv, created by
+`scripts/setup_neural_denoiser.py`, at $MASTERING_STUDIO_NEURAL_PYTHON if set,
+else ~/.mastering-studio/neural-venv (OS-appropriate bin/python vs.
+Scripts/python.exe), run via `_dfn_worker.py`. If that environment is missing,
+`available()` is False and the GUI/CLI option is disabled; nothing else is
+affected.
 
 Temporary files go to ~/.cache/mastering-studio, NOT /tmp: /tmp is RAM-backed on this
 machine (3.9 GB) and a 20-minute file is 230 MB per copy.
@@ -32,7 +35,16 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 
-DEFAULT_PYTHON = os.path.expanduser("~/Work/nn-venv/bin/python")
+def _venv_python_path(venv_dir: str) -> str:
+    """The interpreter path inside a venv, matching how `python -m venv` and
+    `scripts/setup_neural_denoiser.py` lay it out on each OS."""
+    if sys.platform == "win32":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python")
+
+
+DEFAULT_VENV_DIR = os.path.expanduser(os.path.join("~", ".mastering-studio", "neural-venv"))
+DEFAULT_PYTHON = _venv_python_path(DEFAULT_VENV_DIR)
 CACHE_DIR = os.path.expanduser("~/.cache/mastering-studio")
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_dfn_worker.py")
 MODEL_SR = 48000

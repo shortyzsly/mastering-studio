@@ -36,12 +36,10 @@ Mac/Windows: the app has only actually been run on Linux so far -- if
 something breaks, it's most likely a path assumption (see below) or a Qt/GUI
 quirk, not the audio processing.
 
-**Paths that assume Linux**, only relevant if you enable the optional neural
-denoiser (off unless you set it up -- see below): its default location is
-`~/Work/nn-venv`, overridable with the `MASTERING_STUDIO_NEURAL_PYTHON`
-environment variable (point it at that venv's `python`/`python.exe`). Its temp
-files go to `~/.cache/mastering-studio`, which resolves correctly via
-`os.path.expanduser` on Windows too (under `%USERPROFILE%`), but hasn't been
+The optional neural denoiser (see below) is off until you run its setup
+script; its default location, `~/.mastering-studio/neural-venv`, and its temp
+files under `~/.cache/mastering-studio`, both resolve correctly on Windows too
+(under `%USERPROFILE%`) via `os.path.expanduser`, but haven't actually been
 tested there.
 
 ## Signal chain (and why it's built this way)
@@ -256,30 +254,31 @@ cost. Later the user listened to the AFTER-Wiener, unlimited variant and found i
 "excellent" (minimal noise floor), so it is now the default when installed. Measured
 numbers said modest; ears said worth it -- the by-ear judgement wins.
 
-**Setup** (already done on the reference machine, at `~/Work/nn-venv`; optional,
-and off automatically if you skip this):
+**Setup** (optional; the app runs fine without it, just without this stage):
 
 ```
-python3 -m venv ~/Work/nn-venv          # any Python 3.10-3.13: try `pip install deepfilternet` normally first
-~/Work/nn-venv/bin/python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-~/Work/nn-venv/bin/python -m pip install numpy scipy soundfile loguru
-~/Work/nn-venv/bin/python -m pip install --no-deps deepfilternet
+python3 scripts/setup_neural_denoiser.py
 ```
 
-`deepfilternet` needs `libdf`, a Rust extension. On Python 3.14 there's no wheel
-for it at all, which is why `dsp/_libdf_shim.py` exists: a NumPy replacement for
-the parts used at inference (STFT round-trip exact to -162 dBFS), loaded by
-`dsp/_dfn_worker.py`, which is run by the neural env's Python. **On an older
-Python (3.10-3.13) the real `libdf` wheel may install fine** -- try
-`pip install deepfilternet` (with its normal dependencies, no `--no-deps`)
-there first, and only fall back to the shim + the commands above if that
-fails to find a wheel. Either way this venv is entirely separate from the
-app's own `.venv` and from the app's default Python.
+Run with any Python 3.10+ interpreter -- it doesn't need to be, and normally
+isn't, the one running the main app. It creates a **separate** virtualenv (not
+committed to git: PyTorch is ~1 GB and platform/arch-specific, so a venv built
+on this machine wouldn't run on another OS anyway) at
+`~/.mastering-studio/neural-venv` by default, installs PyTorch (CPU wheels) and
+`deepfilternet` there, and verifies the result. Pass `--dest PATH` to put it
+somewhere else, in which case also set `$MASTERING_STUDIO_NEURAL_PYTHON` to
+that venv's `python` (`python.exe` on Windows) so the app finds it; the default
+location is found automatically.
 
-Override the neural venv's location with `$MASTERING_STUDIO_NEURAL_PYTHON`
-(point it at that venv's `python` — `python.exe` on Windows). Weights (8 MB)
-download to `~/.cache/DeepFilterNet` on first use. Temp files go to
-`~/.cache/mastering-studio`.
+`deepfilternet` needs `libdf`, a Rust extension. Where a real wheel exists for
+this Python (more likely on 3.10-3.13 than on 3.14, which had none at all when
+this was built), the script installs and uses it as-is. Otherwise it falls back
+to `dsp/_libdf_shim.py`, a NumPy replacement for the parts used at inference
+(STFT round-trip exact to -162 dBFS), which `dsp/_dfn_worker.py` only loads if
+a real `libdf` isn't found -- either way this is transparent to the app.
+
+Weights (8 MB) download to `~/.cache/DeepFilterNet` on first use. Temp files go
+to `~/.cache/mastering-studio`.
 
 ## Room tone and file length
 

@@ -6,23 +6,28 @@ Reads a mono float WAV at 48 kHz, enhances it in 30 s chunks (with 2 s of contex
 each side, discarded, so the recurrent state is warm at every chunk boundary), and
 writes a float WAV of the same length.
 
-The upstream `deepfilternet` package needs `libdf`, a Rust extension with no wheel
-for Python 3.14. `_libdf_shim.py` is a NumPy replacement for the few functions used
-at inference (STFT analysis/synthesis, ERB features, exponential normalisation); its
-STFT round-trip is exact to -162 dBFS. A stub for `torchaudio.backend.common` is also
-provided because current torchaudio removed it and deepfilternet imports it only for
-a type annotation.
+The upstream `deepfilternet` package needs `libdf`, a Rust extension. Where a real
+wheel installed for this interpreter (e.g. Python 3.10-3.13 on a platform PyPI
+has one for), it's used as-is -- it's the genuine, better-tested implementation.
+Only where none is installed (this had no wheel at all for Python 3.14, which is
+why this fallback exists) does `_libdf_shim.py`, a NumPy replacement for the few
+functions used at inference (STFT analysis/synthesis, ERB features, exponential
+normalisation; STFT round-trip exact to -162 dBFS), stand in for it. A stub for
+`torchaudio.backend.common` is also provided because current torchaudio removed
+it and deepfilternet imports it only for a type annotation.
 """
 import dataclasses
+import importlib.util
 import os
 import sys
 import types
 
-_here = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _here)
-import _libdf_shim  # noqa: E402
+if importlib.util.find_spec("libdf") is None:
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _here)
+    import _libdf_shim  # noqa: E402
 
-sys.modules["libdf"] = _libdf_shim
+    sys.modules["libdf"] = _libdf_shim
 
 _backend = types.ModuleType("torchaudio.backend")
 _common = types.ModuleType("torchaudio.backend.common")
