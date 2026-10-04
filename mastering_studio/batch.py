@@ -21,7 +21,7 @@ MAX_CONCURRENT = 10
 # Measured peak resident memory of the whole pipeline: ~45 bytes per sample
 # (2.5 GB for a 20-minute mono 48 kHz file = 56.7 M samples), plus ~0.4 GB of
 # interpreter/library baseline per worker process. Stereo scales with channels.
-BYTES_PER_SAMPLE_PEAK = 48
+BYTES_PER_SAMPLE_PEAK = 90   # measured on macOS (2026-10): 2.45 GB for a 10.5 min mono 44.1 kHz file; was 48 on Linux
 BASELINE_GB = 0.4
 RAM_FRACTION_USABLE = 0.75
 
@@ -45,7 +45,11 @@ def available_ram_gb() -> Optional[float]:
                     return int(line.split()[1]) / 1e6
     except OSError:
         pass
-    return None
+    try:   # macOS/BSD have no /proc: assume about half of physical RAM is free for us
+        # ponytail: a fixed fraction, not live free memory; read vm_stat if other apps make this too optimistic
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2e9
+    except (ValueError, OSError, AttributeError):
+        return None
 
 
 def plan_workers(jobs: list["BatchJob"], requested: int) -> tuple[int, str]:

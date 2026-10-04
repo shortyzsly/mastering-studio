@@ -112,7 +112,9 @@ def _grow(seeds: np.ndarray, allowed: np.ndarray, max_frames: int) -> np.ndarray
     return cur
 
 
-def detect(x: np.ndarray, sr: int, act: act_mod.Activity | None = None) -> list[tuple[int, int]]:
+def detect(
+    x: np.ndarray, sr: int, act: act_mod.Activity | None = None, require_unvoiced: bool = True
+) -> list[tuple[int, int]]:
     """Return breath events as frame-index runs [(first, last_exclusive)].
 
     Seeds are frames that clearly qualify (level window + unvoiced). Runs are
@@ -120,6 +122,13 @@ def detect(x: np.ndarray, sr: int, act: act_mod.Activity | None = None) -> list[
     room tone), because a breath swells and fades: judging only its loud core
     would cut it off mid-ramp and make the "starts from a pause" test look at
     the ramp instead of the silence before it.
+
+    `require_unvoiced=False` drops the harmonicity test, so this also catches
+    quiet VOICED events in the same level/duration/position window -- a soft
+    murmur, vocal-fry trail-off, or half-swallowed word between phrases. Real
+    speech is loud enough to sit above `hi_db` and so is never a candidate
+    either way; this only widens WHAT KIND of quiet non-speech sound counts,
+    not how loud one is allowed to be. See `detect_quiet_events`.
     """
     act = act or act_mod.analyze_activity(x, sr)
     lv = act.level_db
@@ -129,12 +138,16 @@ def detect(x: np.ndarray, sr: int, act: act_mod.Activity | None = None) -> list[
     in_window = (lv >= lo_db) & (lv <= hi_db)
     ramp_ok = (lv >= act.floor_db + GROW_ABOVE_FLOOR_DB) & (lv <= hi_db + 3.0)
 
-    hval = np.ones(n)
-    need = np.flatnonzero(in_window | ramp_ok)
-    if len(need):
-        hval[need] = _harmonicity(x, sr, act, need)
-    seeds = in_window & (hval < VOICED_MAX)
-    grown = _grow(seeds, ramp_ok & (hval < GROW_VOICED_MAX), GROW_FRAMES)
+    if require_unvoiced:
+        hval = np.ones(n)
+        need = np.flatnonzero(in_window | ramp_ok)
+        if len(need):
+            hval[need] = _harmonicity(x, sr, act, need)
+        seeds = in_window & (hval < VOICED_MAX)
+        grown = _grow(seeds, ramp_ok & (hval < GROW_VOICED_MAX), GROW_FRAMES)
+    else:
+        seeds = in_window
+        grown = _grow(seeds, ramp_ok, GROW_FRAMES)
     if CLOSE_GAP_FRAMES:
         closed = np.convolve(grown.astype(float), np.ones(CLOSE_GAP_FRAMES + 1), "same") > 0
         closed &= ramp_ok | grown
@@ -162,16 +175,9 @@ def detect(x: np.ndarray, sr: int, act: act_mod.Activity | None = None) -> list[
     return events
 
 
-def debreath(
-    x: np.ndarray,
-    sr: int,
-    reduction_db: float = 10.0,
-    act: act_mod.Activity | None = None,
+def _duck_runs(
+    x: np.ndarray, sr: int, act: act_mod.Activity, runs: list[tuple[int, int]], reduction_db: float
 ) -> tuple[np.ndarray, list[BreathEvent]]:
-    """x is (n,) or (n, ch); one linked gain for all channels."""
-    mono = x if x.ndim == 1 else x.mean(axis=1)  # detection signal; NOT abs() (rectifying fakes periodicity)
-    act = act or act_mod.analyze_activity(mono, sr)
-    runs = detect(mono, sr, act)
     if not runs or reduction_db <= 0:
         return x, []
 
@@ -200,3 +206,40 @@ def debreath(
 
     centers = act.frame / 2 + np.arange(n_frames) * act.hop
     return blocks.apply_gain_db(x, centers, smooth), events
+
+
+def debreath(
+    x: np.ndarray,
+    sr: int,
+    reduction_db: float = 10.0,
+    act: act_mod.Activity | None = None,
+) -> tuple[np.ndarray, list[BreathEvent]]:
+    """x is (n,) or (n, ch); one linked gain for all channels."""
+    mono = x if x.ndim == 1 else x.mean(axis=1)  # detection signal; NOT abs() (rectifying fakes periodicity)
+    act = act or act_mod.analyze_activity(mono, sr)
+    runs = detect(mono, sr, act)
+    return _duck_runs(x, sr, act, runs, reduction_db)
+
+
+MURMUR_STRENGTH_DB = {"light": 6.0, "medium": 10.0, "strong": 14.0}
+
+
+def duck_quiet_murmurs(
+    x: np.ndarray,
+    sr: int,
+    reduction_db: float = 10.0,
+    act: act_mod.Activity | None = None,
+) -> tuple[np.ndarray, list[BreathEvent]]:
+    """Like `debreath`, but also catches quiet VOICED non-speech sounds in the
+    same gap between phrases -- a soft murmur, a trailing vocal-fry decay, a
+    half-swallowed word -- that `debreath`'s harmonicity test deliberately
+    excludes (it only targets breaths). These are real recorded sounds, not
+    an artifact: on a quiet source they usually sit well under the noise
+    floor and are never heard, but denoising + loudness normalization can
+    lift a previously-masked one to where it reads as a strange, almost
+    tonal "blip" between words. x is (n,) or (n, ch); one linked gain for all
+    channels."""
+    mono = x if x.ndim == 1 else x.mean(axis=1)
+    act = act or act_mod.analyze_activity(mono, sr)
+    runs = detect(mono, sr, act, require_unvoiced=False)
+    return _duck_runs(x, sr, act, runs, reduction_db)

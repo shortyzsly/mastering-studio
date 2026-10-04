@@ -23,6 +23,7 @@ from scipy import signal
 from scipy.linalg import solve_toeplitz
 from scipy.ndimage import median_filter
 
+from . import activity as act_mod
 from . import blocks as blocks_mod
 
 BLOCK_MS = 1.0
@@ -31,6 +32,9 @@ AR_ORDER = 24
 SPIKE_RATIO = 10.0     # peak / local median level
 NEIGHBOR_RATIO = 4.0   # neighbours must be below this (isolated)
 ABS_FLOOR = 10 ** (-62 / 20)  # ignore spikes below -62 dBFS (inaudible)
+# strength -> (spike ratio over local median, max event length ms). "strong" also catches
+# fainter and slightly longer (wet, smacky) mouth clicks; plosives/fricatives (10-100 ms) stay safe.
+STRENGTHS = {"normal": (SPIKE_RATIO, 4.0, 2), "strong": (6.0, 6.0, 3)}   # (..., isolation distance in 1 ms blocks)
 
 
 def _lpc(seg: np.ndarray, order: int) -> np.ndarray | None:
@@ -77,7 +81,8 @@ def _repair(x: np.ndarray, s: int, e: int) -> bool:
     return True
 
 
-def find_clicks(x: np.ndarray, sr: int) -> list[tuple[int, int]]:
+def find_clicks(x: np.ndarray, sr: int, strength: str = "normal") -> list[tuple[int, int]]:
+    spike_ratio, max_ms, gap = STRENGTHS.get(strength, STRENGTHS["normal"])
     block = max(8, int(sr * BLOCK_MS / 1000))
     n_blocks = len(x) // block
     if n_blocks < 64:
@@ -92,15 +97,22 @@ def find_clicks(x: np.ndarray, sr: int) -> list[tuple[int, int]]:
         env[s0 // block : e0 // block] = np.abs(y).reshape(-1, block).max(axis=1)
     base = median_filter(env, size=41, mode="nearest") + 1e-9  # ~40 ms
 
-    spike = (env > SPIKE_RATIO * base) & (env > ABS_FLOOR)
+    ratio = np.full(n_blocks, float(spike_ratio))
+    if spike_ratio < SPIKE_RATIO:
+        # Extra sensitivity only outside words (pauses, phrase edges: where lip smacks are heard).
+        # Inside loud speech short HF transients are often consonant bursts, and real clicks are masked.
+        act = act_mod.analyze_activity(x, sr)
+        blk_frame = np.minimum((np.arange(n_blocks) * block) // act.hop, len(act.speech_mask) - 1)
+        ratio[act.speech_mask[blk_frame]] = SPIKE_RATIO
+    spike = (env > ratio * base) & (env > ABS_FLOOR)
     clicks = []
     for b in np.flatnonzero(spike):
-        lo, hi = max(0, b - 3), min(n_blocks, b + 4)
-        # isolated: blocks 2-3 away on both sides are back near baseline
-        ring = np.r_[env[lo : max(lo, b - 1)], env[min(hi, b + 2) : hi]]
+        lo, hi = max(0, b - gap - 1), min(n_blocks, b + gap + 2)
+        # isolated: blocks `gap`..`gap`+1 away on both sides are back near baseline
+        ring = np.r_[env[lo : max(lo, b - gap + 1)], env[min(hi, b + gap) : hi]]
         if len(ring) and np.any(ring > NEIGHBOR_RATIO * base[b]):
             continue
-        clicks.append((max(0, (b - 1) * block), min(len(x), (b + 2) * block)))
+        clicks.append((max(0, (b - 1) * block), min(len(x), (b + gap) * block)))
     # merge overlapping spans
     merged: list[list[int]] = []
     for s, e in clicks:
@@ -108,12 +120,12 @@ def find_clicks(x: np.ndarray, sr: int) -> list[tuple[int, int]]:
             merged[-1][1] = max(merged[-1][1], e)
         else:
             merged.append([s, e])
-    return [(s, e) for s, e in merged if (e - s) <= int(sr * 0.004)]
+    return [(s, e) for s, e in merged if (e - s) <= int(sr * max_ms / 1000)]
 
 
-def declick(x: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
+def declick(x: np.ndarray, sr: int, strength: str = "normal") -> tuple[np.ndarray, int]:
     """Returns (audio, number of clicks repaired)."""
-    spans = find_clicks(x, sr)
+    spans = find_clicks(x, sr, strength)
     if not spans:
         return x, 0
     y = np.array(x, dtype=np.float32, copy=True)

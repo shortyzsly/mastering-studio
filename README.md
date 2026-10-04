@@ -4,6 +4,52 @@ Native audio mastering app for voice/audiobook recordings. PySide6 GUI plus a
 CLI; batch-processes several files in parallel (separate OS processes), sizing
 the parallelism from the files and the free RAM.
 
+## Quick start (ACX audiobook chapters)
+
+1. Launch the GUI, pick your **Microphone** (Maono PD70 dynamic / Stellar X2 condenser / other).
+2. Drop chapter files in the queue. Select one: its waveform shows the auto-detected room tone in
+   green. Optionally drag across a stretch of pure room tone and click **Use Selection as Noise
+   Sample** (otherwise the room tone is found automatically).
+3. **Analyze Selected** previews what Smart Auto measured and will do, plus the raw file's ACX check.
+4. **Master Queue**. Each row gets an ACX PASS/FAIL; the Report tab shows every requirement for the
+   raw file, the WAV master and the decoded MP3 (what ACX actually receives), and what was done.
+5. **Play Original / Play Mastered / A/B Switch** (click the waveform to seek; a selection plays
+   just that stretch). A/B stays on the same word even though the head room tone was re-fitted.
+
+Outputs: `<name>_mastered.wav` (24-bit, source rate) and `<name>_mastered.mp3` (192 kbps CBR,
+44.1 kHz -- ACX's upload format). CLI equivalent:
+```
+.venv/bin/python -m mastering_studio.cli ch01.wav ch02.wav -o out/ --mic pd70 --mp3
+```
+Self-checks (synthetic signals with known answers): `.venv/bin/python tests/test_core.py`.
+
+## Smart Auto and mic profiles (`auto.py`)
+
+Smart Auto (on by default; `--manual` / GUI "Off" to use the stage settings yourself) measures each
+raw file and picks every stage's strength, and writes down why (Report tab / CLI output):
+
+* **Tone**: speech-only 1/3-octave levels vs a finished-narration target relative to 1 kHz
+  (`eq.TONE_TARGET_REL_1K`, Byrne et al. LTASS shape nudged ~1-2 dB brighter in 2-8 kHz). Boom
+  (80-160 Hz) and mud (200-500) pick the bass control; presence (2.5-4 kHz) the harshness control;
+  5-8 kHz the de-esser. **`TONE_TARGET_REL_1K` is the calibration knob**: if masters are
+  consistently too bright/dull/thin by ear, move those numbers.
+* **Noise floor** -> hiss control; **click rate** -> de-click Normal/Strong; **room decay (T60)**
+  -> de-reverb strength.
+
+Mic profiles describe the mic *type* (the per-file measurement handles the actual unit):
+
+| | Maono PD70 (dynamic) | Stellar X2 (vintage LDC) |
+|---|---|---|
+| High-pass | 90 Hz (proximity rumble/thump) | 75 Hz |
+| Bass/boom control | at least Medium | from measurement |
+| Harshness control | at most Medium (already dark; don't dull it) | at least Medium (bright capsule) |
+| De-esser | from measurement | at least Medium |
+| De-reverb | one step gentler (rejects the room) | one step stronger (hears the booth) |
+| Tone-match presence/air lift | full (crisp read) | half (has its own air) |
+| Hiss control | one step stronger (hot Vocaster gain) | from measurement |
+
+Vocaster Two tip: record with its **Enhance** presets off -- they EQ/compress before this chain does.
+
 ## Setup
 
 Needs Python 3.10+ (the reference machine happens to run 3.14; nothing here
@@ -44,6 +90,8 @@ tested there.
 
 ## Signal chain (and why it's built this way)
 
+New stages (2026-10) are marked **[new]**; Smart Auto sets the strengths described below.
+
 Modeled on how iZotope RX, Auphonic and broadcast mastering chains work.
 
 1. **Rumble/DC removal** -- 80 Hz high-pass (2nd-order Butterworth, zero-phase =
@@ -77,6 +125,13 @@ Modeled on how iZotope RX, Auphonic and broadcast mastering chains work.
    cleanup pass AFTER the Wiener denoiser, attenuation UNLIMITED (the user preferred
    this by ear over the 12 dB cap; gaps end up near -95 dBFS). GUI: Neural denoiser
    On/Off; CLI `--neural auto|on|off`. See "Neural denoiser" below.
+5c. **[new] De-reverb** (`dsp/dereverb.py`, part of "Room & mud fix") -- small-booth reflections.
+   T60 is estimated blindly from word offsets (a room can't make sound decay faster than its own
+   decay, so the steep end of the measured decay slopes, after skipping the direct-sound drop, is
+   the room's: within ~10% on synthetic rooms 0.2-0.7 s). Then statistical late-reverb suppression
+   (Lebart/Habets): reverberant power = power 50 ms earlier x exp(-2*delta*50 ms); gain floor
+   6/10/15 dB. Direct sound and the first 50 ms of reflections are untouched; on a 0.4 s room
+   it lowers word tails 6-11 dB while the direct voice stays within 1 dB. Off for dry files.
 6. **EQ / voice polish** (one linear-phase FIR, so gains are exact) --
    measured cuts (max 2.5 dB, >=600 Hz only) for bumps >3 dB above the voice's
    own spectral trend, plus a top-end curve chosen by the Harshness setting
@@ -96,6 +151,15 @@ Modeled on how iZotope RX, Auphonic and broadcast mastering chains work.
      (Light 80th/2:1/3 dB, Strong 60th/4:1/8 dB). Pulls back boomy surges
      (proximity effect, plosive thump) while leaving steady body alone; nothing
      above ~400 Hz changes. CLI: `--lowend off|light|medium|strong`.
+   * **[new] Room modes** (Room & mud fix): narrow fixed-frequency peaks 80-1000 Hz (booth modes:
+     a 0.75 m booth dimension rings at ~229 Hz) found in the long-term speech spectrum of 8 time
+     segments, ~5 Hz resolution. A peak must be present in >=75% of segments with median
+     prominence >= 3.5 dB, and not sit on a multiple of the voice's median F0 (a monotone
+     narrator's harmonics stay put too). Notched with its measured width, 80% of its height, max
+     8 dB; replaces the low-end stage's broader mud bell at that frequency. Needs ~40 s of speech.
+   * **[new] With Room & mud fix on, the low-end stage drops its broad shelf/dip** and keeps only
+     the measured mud-peak cuts + dynamic swell control: the final tone match (11b) owns the broad
+     low-end balance, from a real measurement.
 8. **De-breath** -- finds inhales and ducks them 6/10/14 dB (Light/Medium/
    Strong), never removing them and never below the room tone. A breath must be
    unvoiced (low autocorrelation), 12-34 dB below speech, 0.24-1.5 s long, start
@@ -114,11 +178,27 @@ Modeled on how iZotope RX, Auphonic and broadcast mastering chains work.
     (auto-detected, typically 4-9 kHz), threshold = a percentile of that band's
     level in speech (Light 95 / Medium 92 / Strong 88), 2-3:1, max 4/6/9 dB,
     speech frames only. CLI: `--deess off|light|medium|strong`.
+11b. **[new] Tone match + EQ presets** (final EQ, after every dynamic stage, because bass control,
+    compression and de-essing all move the long-term spectrum). Measures speech-only 1/3-octave
+    levels, compares to `TONE_TARGET_REL_1K`, corrects 70% of anything beyond a 2 dB deadband with
+    1/3-octave bells. Limits: <170 Hz cut-only, max 10 dB; 170-520 Hz -6/+1.5; mids -3/+1.5;
+    presence -4/+2.5; air -4/+2 (boosts scaled by the mic profile). On the reference sample the raw
+    100 Hz band sat +18.6 dB over target (proximity boom); the old chain left it at +12.9, now +4
+    with 400 Hz-6 kHz all within +/-3 dB. GUI/CLI **EQ presets** (Low: cut rumble / cut boom / warm
+    / body; Mid: cut mud / boxiness / nasal / clarity boost; High: cut harshness / sibilance,
+    presence / air / crisp boost) ride on top of the automatic match.
+    De-click also has a **[new] Strong** sensitivity (6x instead of 10x over the local median, up
+    to 6 ms) -- applied only outside words, where lip smacks are audible; inside loud speech short
+    HF transients are usually consonant bursts and real clicks are masked anyway.
 12. **Loudness + true-peak limiter** -- one gain to the target integrated LUFS,
     then a 4x-oversampled lookahead limiter; gain is re-trimmed so the file
     lands on target *after* limiting.
 13. **Room tone** (`dsp/roomtone.py`, runs LAST, on the final samples) -- ACX
-    wants 0.5-1 s of room tone (not digital silence) at the head and tail, and
+    wants 0.5-1 s of room tone (not digital silence) at the head and 1-5 s at the tail.
+    **[new]** `fit_head_tail` makes them EXACTLY 0.75 s / 2.0 s (`--head/--tail`): too much is
+    trimmed (10 ms fade), too little is padded; channels share one set of speech bounds. The old
+    pad *added* 0.75 s to whatever was there, which could exceed ACX's 1 s head maximum and missed
+    its 1 s tail minimum. ACX also
     dislikes an unnaturally deep drop-out as much as too much noise. Nothing
     is synthesized: this HARVESTS the file's own cleanest quiet stretches (per
     channel, crossfade-joined into a several-second bed) and loops that,
@@ -132,6 +212,11 @@ Modeled on how iZotope RX, Auphonic and broadcast mastering chains work.
       neighbours. A file with even gaps typically has nothing to smooth.
     GUI: On / Pad only / Smooth only / Off. CLI `--roomtone on|pad-only|floor-only|off`,
     `--roomtone-pad <seconds>`.
+
+14. **[new] ACX check + final RMS trim** (`acx.py`): after everything, if whole-file RMS is outside
+    -22.5..-18.5 dB, one gain trim through the limiter toward -20.5 (never pushing the noise floor
+    over -61 dB). Then the WAV, and the MP3 decoded back from disk, are measured against every ACX
+    requirement (RMS, peak, noise floor = quietest 0.5 s, head/tail, 44.1 kHz, mono).
 
 | Preset | Integrated | True-peak ceiling |
 |---|---|---|
@@ -220,6 +305,14 @@ preset lands ~1.1 dB inside it.
   (zero-phase filters, FFT convolution, `np.interp`, `scipy.signal.welch`,
   pyloudnorm) cost 1-3 GB each on a 20-minute file. `dsp/blocks.py` has
   chunked equivalents that match the whole-file results below -140 dBFS.
+* **Measure tone AFTER the dynamic stages.** The first tone match predicted the static EQ's effect
+  and corrected the rest -- but the bass compressor (up to 9 dB) and the broad "max" low-end shelf
+  then left 160-315 Hz 8-14 dB under target (a thin voice). Measuring at the end, on the real
+  signal, needs no prediction and landed every band within ~+/-4 dB.
+* **Room modes vs pitch: use the median over time segments and reject k*F0.** A mean let one odd
+  segment create peaks; a monotone narrator's harmonics are as stable as a room mode. Tested on
+  synthetic male/female/monotone voices with and without booth modes; it errs on the side of
+  missing a mode (the tone match still handles the broad excess) rather than notching a voice.
 * **Verify by ear before batch-running.** Numbers cannot detect warble or dull
   EQ. Process one 60 s clip first and listen.
 
@@ -289,6 +382,11 @@ or the GUI's "Smooth outlier gaps only") if you need the output to stay exactly
 the same length as the input.
 
 ## Memory
+
+**[2026-10, macOS]** measured 2.45 GB peak for a 10.5-minute mono 44.1 kHz file (~90 bytes per
+sample; `batch.BYTES_PER_SAMPLE_PEAK` now uses that), 2.56 GB with MP3 export, ~60 s with the
+neural pass. On macOS there is no `/proc/meminfo`, so the planner assumes half of physical RAM is
+free. The figures below are the original Linux measurements.
 
 Peak resident memory is ~45 bytes per sample per channel: about 2.5 GB for a
 20-minute mono 48 kHz file, ~1.6 GB for 12.5 minutes (was 4.5 GB before the

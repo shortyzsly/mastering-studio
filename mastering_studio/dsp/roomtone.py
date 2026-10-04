@@ -195,3 +195,41 @@ def raise_outlier_gaps(
         "roomtone_floor_raised_pct": round(100.0 * total_raised / len(x), 2),
         "roomtone_floor_events": len(runs),
     }
+
+
+FIT_FADE_MS = 10.0
+
+
+def fit_head_tail(
+    x: np.ndarray,
+    sr: int,
+    act: act_mod.Activity,
+    bounds: tuple[int, int],
+    head_s: float,
+    tail_s: float,
+) -> tuple[np.ndarray, dict]:
+    """Make the room tone before the first word exactly `head_s` and after the last word exactly
+    `tail_s` (ACX: 0.5-1 s head, 1-5 s tail): trim what is too long, pad (harvested tone) what is
+    too short. `bounds` = (first, last) performance sample, shared by all channels so they stay
+    aligned. Returns (audio, stats); stats["roomtone_shift_s"] is how far the performance moved."""
+    first, last = bounds
+    head_n, tail_n = int(round(head_s * sr)), int(round(tail_s * sr))
+    start, end = max(0, first - head_n), min(len(x), last + tail_n)
+    y = np.array(x[start:end], dtype=np.float32)
+    fade = min(int(FIT_FADE_MS / 1000 * sr), len(y) // 4)
+    if start > 0 and fade:
+        y[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+    if end < len(x) and fade:
+        y[-fade:] *= np.linspace(1.0, 0.0, fade, dtype=np.float32)
+    need_head = (head_n - (first - start)) / sr
+    need_tail = (tail_n - (end - last)) / sr
+    if need_head > 0.005 or need_tail > 0.005:
+        bed = harvest_bed(x, sr, act)   # act indexes the untrimmed x
+        if bed is None:
+            need_head = need_tail = 0.0
+        else:
+            y, _ = pad_head_tail(y, sr, act, max(need_head, 0.0), max(need_tail, 0.0), bed=bed)
+    shift = (max(need_head, 0.0) * sr - start) / sr
+    return y.astype(np.float32), {"roomtone_head_s": head_s, "roomtone_tail_s": tail_s,
+                                  "roomtone_trimmed_s": round((start + len(x) - end) / sr, 2),
+                                  "roomtone_shift_s": round(shift, 3)}

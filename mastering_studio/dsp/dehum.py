@@ -32,9 +32,11 @@ sits ~50 dB below the voice and is masked.
 from __future__ import annotations
 
 import numpy as np
+from scipy import signal
 from scipy.ndimage import median_filter
 
 from . import activity as act_mod
+from . import blocks
 
 MAINS_HZ = (50.0, 60.0)
 MIN_LINES = 5
@@ -236,5 +238,58 @@ def dehum(x: np.ndarray, sr: int, act: act_mod.Activity | None = None, info: dic
         "hum_lines": len(info["lines"]),
         "hum_max_line_db": round(max(l["prom_db"] for l in info["lines"]), 1),
         "hum_gap_pct": round(100.0 * covered / len(x), 1),
+    }
+    return y, stats
+
+
+# --- optional: narrow-band hum reduction UNDER SPEECH too -------------------
+#
+# The gap-only removal above assumes hum sits ~50 dB below the voice while
+# speaking and so is masked. That assumption can be wrong on a noisy chain
+# (bad ground loop, cheap interface, hum picked up near the mic): if the
+# strongest line is within ~20-25 dB of speech level, it stays audible as a
+# low buzz under every word even after gap removal cleans the pauses.
+#
+# This is deliberately NOT the sinusoid-fit-and-subtract method `dehum` uses
+# in gaps (that needs a quiet segment to fit against; voice energy at the
+# same bins would bias the fit and could audibly damage the voice). Instead
+# it is a bank of narrow (~2 Hz wide) notches, applied zero-phase across the
+# whole signal, each only PARTIALLY closed (see NOTCH_MIX) so a harmonic that
+# happens to land on the narrator's own pitch is thinned, not erased.
+# Only harmonics below NOTCH_MAX_HZ are touched -- above that, hum is
+# negligible next to speech and the risk of clipping a real formant rises.
+NOTCH_Q = 30.0            # bandwidth ~= f/Q (~1.7 Hz at 50 Hz)
+NOTCH_MIX = 0.7           # 0=no effect, 1=full (very deep) notch; partial keeps this safe on voiced harmonics
+NOTCH_MAX_HZ = 500.0
+NOTCH_MASKED_DB = 35.0    # only notch lines this close to (or louder than) the speech level; skip ones already well masked
+
+
+def notch_under_speech(
+    x: np.ndarray, sr: int, info: dict, noise_floor_dbfs: float, speech_db: float,
+    mix: float = NOTCH_MIX, max_hz: float = NOTCH_MAX_HZ,
+) -> tuple[np.ndarray, dict]:
+    """Attenuate detected hum harmonics (from `detect()`'s `info`) across the
+    WHOLE signal, not just gaps. `noise_floor_dbfs` (the file's overall room
+    floor) plus a line's measured prominence approximates that line's absolute
+    level, so only lines within NOTCH_MASKED_DB of speech -- audible, not
+    masked -- are touched. Returns (audio, stats); stats is empty and audio is
+    unchanged if there is nothing worth notching."""
+    if not info:
+        return x, {}
+    lines = [
+        l for l in info["lines"]
+        if l["hz"] <= max_hz and (noise_floor_dbfs + l["prom_db"]) >= speech_db - NOTCH_MASKED_DB
+    ]
+    if not lines:
+        return x, {}
+    sos = np.concatenate(
+        [np.atleast_2d(signal.tf2sos(*signal.iirnotch(l["hz"], NOTCH_Q, fs=sr))) for l in lines],
+        axis=0,
+    )
+    notched = blocks.sosfiltfilt_blocks(sos, x.astype(np.float32, copy=False), sr)
+    y = (x + mix * (notched - x)).astype(np.float32, copy=False)
+    stats = {
+        "hum_notch_under_speech_hz": [round(l["hz"], 1) for l in lines],
+        "hum_notch_mix": mix,
     }
     return y, stats

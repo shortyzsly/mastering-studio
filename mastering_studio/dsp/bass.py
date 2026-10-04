@@ -14,6 +14,14 @@ is applied on speech frames only, never in the gaps.
 
 Strength presets (threshold percentile / ratio / max reduction):
   light 80 / 2:1 / 3 dB    medium 70 / 3:1 / 5 dB    strong 60 / 4:1 / 8 dB
+  max 50 / 5:1 / 10 dB
+
+Note this is relative to THIS speaker's own median low-band level: a small
+untreated room or a mic sitting too close to a boundary can make that whole
+band constantly loud rather than swelling on certain words, and a percentile
+threshold can't see a constant elevation as different from "normal" -- that
+part of small-room boom has to be fixed by the static low-shelf in dsp.eq
+instead (see LOWEND_PRESETS "max").
 """
 from __future__ import annotations
 
@@ -27,6 +35,7 @@ STRENGTHS = {
     "light": (80.0, 2.0, 3.0),
     "medium": (70.0, 3.0, 5.0),
     "strong": (60.0, 4.0, 8.0),
+    "max": (55.0, 5.0, 9.0),
 }
 # 70-280 Hz, not 70-200: for a voice with F0 ~100-140 Hz the 2nd harmonic (~200-280 Hz, where the
 # 'mud' peak sits) swells with the fundamental. Watching only 70-200 left it uncontrolled. Measured swell

@@ -23,7 +23,10 @@ from scipy.special import exp1
 from . import activity as act_mod
 
 # Presets map to a *reduction in dB*, the unit RX / Auphonic expose.
-STRENGTH_PRESETS_DB = {"gentle": 6.0, "moderate": 10.0, "aggressive": 18.0}
+# "maximum" is a deliberately extreme, opt-in floor: it will start to sound
+# processed/watery on some material (the classic spectral-denoise trade-off),
+# but it gets the room tone about as close to silent as this algorithm can.
+STRENGTH_PRESETS_DB = {"gentle": 6.0, "moderate": 10.0, "aggressive": 18.0, "maximum": 30.0}
 
 # Extra reduction where there is (almost) no speech: below ~120 Hz (rumble) and
 # above ~6-12 kHz (hiss; speech has very little energy past 12 kHz). Speech-
@@ -86,6 +89,19 @@ def learn_noise_psd(x: np.ndarray, sr: int, activity: act_mod.Activity) -> np.nd
             frames.append(x[s : s + n_fft])
     if not frames:
         raise ValueError("no room tone found to learn a noise profile from")
+    return _psd_of_frames(frames, win)
+
+
+def noise_psd_from_audio(seg: np.ndarray, sr: int) -> np.ndarray:
+    """Noise profile from a stretch the user marked as pure room tone (no activity detection)."""
+    n_fft = _n_fft(sr)
+    frames = [seg[s : s + n_fft] for s in range(0, len(seg) - n_fft, n_fft // 2)]
+    if len(frames) < 4:
+        raise ValueError("noise sample too short: select at least 0.2 s of room tone")
+    return _psd_of_frames(frames, _window(n_fft))
+
+
+def _psd_of_frames(frames: list[np.ndarray], win: np.ndarray) -> np.ndarray:
     if len(frames) > MAX_NOISE_FRAMES:
         pick = np.linspace(0, len(frames) - 1, MAX_NOISE_FRAMES).astype(int)
         frames = [frames[i] for i in pick]
