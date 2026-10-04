@@ -14,9 +14,8 @@ needs to know what that kind of mic tends to get wrong.
     adds hiss; naturally dark top end (benefits from a little presence/air,
     must not be dulled further); rejects most of the booth.
   * Large-diaphragm "vintage" condenser (Stellar X2): hears the booth -- small
-    room reflections and modes -- far more; brighter, more sibilant top end;
-    less proximity boom at normal distance; lower self-noise than a hot
-    dynamic chain.
+    room reflections and modes -- far more; more sibilant; lower self-noise
+    than a hot dynamic chain. (Not brighter in practice: see the profile.)
 """
 from __future__ import annotations
 
@@ -46,12 +45,15 @@ MIC_PROFILES = {
     },
     "stellar_x2": {
         "label": "Stellar X2 (vintage condenser)",
-        "highpass_hz": 75.0,
+        # highpass / soften / tone_boost below were calibrated BY EAR on a real X2 read in the user's booth
+        # (the approved "CLEAR2" master): the "bright capsule" guesses (75 Hz, soften >= medium, half
+        # presence/air lift) measured ~1 dB duller at 2.5-4 kHz and ~2 dB at 10-12.5 kHz than the approved sound.
+        "highpass_hz": 90.0,
         "lowend": (0, 3),
-        "soften": (1, 2),              # brighter capsule: at least medium harshness control
-        "deess": (1, 2),               # and at least medium de-essing
+        "soften": (0, 2),              # measured per file; this X2 reads on target in presence, not bright
+        "deess": (1, 2),               # at least medium de-essing
         "dereverb_bias": 1,            # hears the booth: reflections, modes
-        "tone_boost_scale": 0.5,       # has its own air; boosting it mostly adds sibilance/hiss
+        "tone_boost_scale": 1.0,
         "dehiss_bias": 0,
     },
 }

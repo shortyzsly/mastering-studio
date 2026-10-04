@@ -48,8 +48,10 @@ COL_FILE, COL_STATUS, COL_PROGRESS, COL_ACX, COL_NOTES = range(5)
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "MASTERING STUDIO OUTPUT")
 
 # Widget attribute names (all QComboBox) whose selection is remembered across launches.
+# NOT the Low/Mid/High EQ presets: they stack on top of the automatic EQ, so a cut remembered from an
+# old session silently cut the same region twice (thin, hollow, dull). They start at "off" every launch.
 PERSISTED_COMBOS = [
-    "mic_combo", "auto_combo", "roomfix_combo", "dereverb_combo", "eq_low_combo", "eq_mid_combo", "eq_high_combo",
+    "mic_combo", "auto_combo", "roomfix_combo", "dereverb_combo",
     "export_combo", "declick_strength_combo",
     "dehum_combo", "dehum_under_speech_combo", "neural_combo", "neural_atten_combo", "denoise_combo",
     "eq_combo", "lowend_combo", "declick_combo", "soften_combo", "dehiss_combo",
