@@ -45,14 +45,15 @@ MIC_PROFILES = {
     },
     "stellar_x2": {
         "label": "Stellar X2 (vintage condenser)",
-        # highpass / soften / tone_boost below were calibrated BY EAR on a real X2 read in the user's booth
-        # (the approved "CLEAR2" master): the "bright capsule" guesses (75 Hz, soften >= medium, half
-        # presence/air lift) measured ~1 dB duller at 2.5-4 kHz and ~2 dB at 10-12.5 kHz than the approved sound.
+        # Calibrated BY EAR on real X2 reads in the user's booth (approved masters "CLEAR2" of "45 & A Shovel"
+        # and "B" of "Untitled 2"): the "bright capsule" guesses (75 Hz, soften >= medium, half presence/air
+        # lift) measured ~1 dB duller at 2.5-4 kHz and ~2 dB at 10-12.5 kHz than the approved sound, and
+        # medium harshness control / medium de-reverb made Untitled 2 boxy, boomy and unclear.
         "highpass_hz": 90.0,
         "lowend": (0, 3),
-        "soften": (0, 2),              # measured per file; this X2 reads on target in presence, not bright
+        "soften": (0, 0),              # always light: both approved masters used light
         "deess": (1, 2),               # at least medium de-essing
-        "dereverb_bias": 1,            # hears the booth: reflections, modes
+        "dereverb_bias": -1,           # one step gentler: T60 < 0.3 s off, 0.3-0.5 light, >= 0.5 medium
         "tone_boost_scale": 1.0,
         "dehiss_bias": 0,
     },
