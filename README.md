@@ -6,7 +6,7 @@ the parallelism from the files and the free RAM.
 
 ## Quick start (ACX audiobook chapters)
 
-1. Launch the GUI, pick your **Microphone** (Maono PD70 dynamic / Stellar X2 condenser / other).
+1. Launch the GUI, pick your **Microphone** (PreSonus PD70 dynamic / Stellar X2 condenser / other).
 2. Drop chapter files in the queue. Select one: its waveform shows the auto-detected room tone in
    green. Optionally drag across a stretch of pure room tone and click **Use Selection as Noise
    Sample** (otherwise the room tone is found automatically).
@@ -38,7 +38,7 @@ raw file and picks every stage's strength, and writes down why (Report tab / CLI
 
 Mic profiles describe the mic *type* (the per-file measurement handles the actual unit):
 
-| | Maono PD70 (dynamic) | Stellar X2 (vintage LDC) |
+| | PreSonus PD70 (dynamic) | Stellar X2 (vintage LDC) |
 |---|---|---|
 | High-pass | 90 Hz (proximity rumble/thump) | 75 Hz |
 | Bass/boom control | at least Medium | from measurement |

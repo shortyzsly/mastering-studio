@@ -9,7 +9,7 @@ what "medium" or "strong" actually does.
 Mic profiles describe the mic TYPE, not a lab measurement of the exact unit:
 the per-file tone match measures the real recording anyway, so a profile only
 needs to know what that kind of mic tends to get wrong.
-  * Dynamic broadcast mic (Maono PD70): worked close, so proximity-effect
+  * Dynamic broadcast mic (PreSonus PD70): worked close, so proximity-effect
     boom and plosive thump; low output, so the Vocaster's preamp runs hot and
     adds hiss; naturally dark top end (benefits from a little presence/air,
     must not be dulled further); rejects most of the booth.
@@ -34,7 +34,7 @@ MIC_PROFILES = {
         "dereverb_bias": 0, "tone_boost_scale": 1.0, "dehiss_bias": 0,
     },
     "pd70": {
-        "label": "Maono PD70 (dynamic)",
+        "label": "PreSonus PD70 (dynamic)",
         "highpass_hz": 90.0,           # proximity effect puts real rumble/thump down there
         "lowend": (1, 3),              # at least medium bass control: boom swells with distance changes
         "soften": (0, 1),              # never "strong": a dynamic is dark already, don't dull it
